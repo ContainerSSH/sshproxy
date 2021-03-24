@@ -75,16 +75,22 @@ func setUpBackendContainer(t *testing.T) string {
 		t.Fatalf("failed to create Docker client (%v)", err)
 	}
 	cli.NegotiateAPIVersion(ctx)
-	reader, err := cli.ImagePull(ctx, "docker.io/containerssh/containerssh-guest-image", types.ImagePullOptions{})
-	if err != nil {
-		t.Fatalf("failed to pull containerssh/containerssh-guest-image (%v)", err)
+	pullContainerImage(ctx, t, cli)
+	cnt := createContainer(ctx, t, cli)
+	if err := cli.ContainerStart(ctx, cnt.ID, types.ContainerStartOptions{}); err != nil {
+		t.Fatalf("failed to start container (%v)", err)
 	}
-	if _, err := ioutil.ReadAll(reader); err != nil {
-		t.Fatalf("failed to pull containerssh/containerssh-guest-image (%v)", err)
-	}
-	if err := reader.Close(); err != nil {
-		t.Fatalf("failed to pull containerssh/containerssh-guest-image (%v)", err)
-	}
+
+	private := getHostKeyFromContainer(ctx, t, cli, cnt)
+	fingerprint := ssh.FingerprintSHA256(private.PublicKey())
+	return fingerprint
+}
+
+func createContainer(
+	ctx context.Context,
+	t *testing.T,
+	cli *client.Client,
+) container.ContainerCreateCreatedBody {
 	cnt, err := cli.ContainerCreate(
 		ctx,
 		&container.Config{
@@ -129,13 +135,20 @@ func setUpBackendContainer(t *testing.T) string {
 			)
 		},
 	)
-	if err := cli.ContainerStart(ctx, cnt.ID, types.ContainerStartOptions{}); err != nil {
-		t.Fatalf("failed to start container (%v)", err)
-	}
+	return cnt
+}
 
-	private := getHostKeyFromContainer(ctx, t, cli, cnt)
-	fingerprint := ssh.FingerprintSHA256(private.PublicKey())
-	return fingerprint
+func pullContainerImage(ctx context.Context, t *testing.T, cli *client.Client) {
+	reader, err := cli.ImagePull(ctx, "docker.io/containerssh/containerssh-guest-image", types.ImagePullOptions{})
+	if err != nil {
+		t.Fatalf("failed to pull containerssh/containerssh-guest-image (%v)", err)
+	}
+	if _, err := ioutil.ReadAll(reader); err != nil {
+		t.Fatalf("failed to pull containerssh/containerssh-guest-image (%v)", err)
+	}
+	if err := reader.Close(); err != nil {
+		t.Fatalf("failed to pull containerssh/containerssh-guest-image (%v)", err)
+	}
 }
 
 func getHostKeyFromContainer(
