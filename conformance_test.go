@@ -75,6 +75,16 @@ func setUpBackendContainer(t *testing.T) string {
 		t.Fatalf("failed to create Docker client (%v)", err)
 	}
 	cli.NegotiateAPIVersion(ctx)
+	reader, err := cli.ImagePull(ctx, "docker.io/containerssh/containerssh-guest-image", types.ImagePullOptions{})
+	if err != nil {
+		t.Fatalf("failed to pull containerssh/containerssh-guest-image (%v)", err)
+	}
+	if _, err := ioutil.ReadAll(reader); err != nil {
+		t.Fatalf("failed to pull containerssh/containerssh-guest-image (%v)", err)
+	}
+	if err := reader.Close(); err != nil {
+		t.Fatalf("failed to pull containerssh/containerssh-guest-image (%v)", err)
+	}
 	cnt, err := cli.ContainerCreate(
 		ctx,
 		&container.Config{
