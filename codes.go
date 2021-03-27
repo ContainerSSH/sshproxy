@@ -36,12 +36,7 @@ const EStderrError = "SSHPROXY_STDERR_ERROR"
 // ContainerSSH is connecting the backing server.
 const MConnecting = "SSHPROXY_CONNECTING"
 
-// Setting the environment variable failed because the backend rejected it.
-const ESetEnvFailed = "SSHPROXY_SETENV_FAILED"
-
-// ContainerSSH failed to close the channel on the backend channel. This may be because of an underlying network issue
-// or a problem with the backend server.
-const EBackingChannelCloseFailed = "SSHPROXY_BACKEND_CHANNEL_CLOSE_FAILED"
+const EBackendRequestFailed = "SSHPROXY_BACKEND_REQUEST_FAILED"
 
 // ContainerSSH failed to change the window size on the backend channel. This may be because of an underlying network
 // issue, a policy-based rejection from the backend server, or a bug in the backend server.
@@ -57,5 +52,60 @@ const ESignalFailed = "SSHPROXY_BACKEND_SIGNAL_FAILED"
 // The ContainerSSH SSH proxy module failed to close the client connection.
 const EChannelCloseFailed = "SSHPROXY_CHANNEL_CLOSE_FAILED"
 
-//
+// ContainerSSH failed to open a session on the backend server with the SSH Proxy backend.
 const EBackendSessionFailed = "SSHPROXY_BACKEND_SESSION_FAILED"
+
+// The ContainerSSH SSH proxy backend is opening a new session.
+const MSession = "SSHPROXY_SESSION"
+
+// The ContainerSSH SSH proxy backend has opened a new session.
+const MSessionOpen = "SSHPROXY_SESSION_OPEN"
+
+// The ContainerSSH SSH proxy backend is closing a session.
+const MSessionClose = "SSHPROXY_SESSION_CLOSE"
+
+// The ContainerSSH SSH proxy backend has closed a session.
+const MSessionClosed = "SSHPROXY_SESSION_CLOSED"
+
+// ContainerSSH failed to close the session channel on the backend. This may be because of an underlying network issue
+// or a problem with the backend server.
+const ESessionCloseFailed = "SSHPROXY_SESSION_CLOSE_FAILED"
+
+// The ContainerSSH SSH proxy backend has received an exit-signal message.
+const MExitSignal = "SSHPROXY_EXIT_SIGNAL"
+
+// The ContainerSSH SSH proxy backend has received an exit-signal message, but failed to decode the message. This is
+// most likely due to a bug in the backend SSH server.
+const MExitSignalDecodeFailed = "SSHPROXY_EXIT_SIGNAL_DECODE_FAILED"
+
+// The ContainerSSH SSH proxy backend has received an exit-status message.
+const MExitStatus = "SSHPROXY_EXIT_STATUS"
+
+// The ContainerSSH SSH proxy backend has received an exit-status message, but failed to decode the message. This is
+// most likely due to a bug in the backend SSH server.
+const MExitStatusDecodeFailed = "SSHPROXY_EXIT_STATUS_DECODE_FAILED"
+
+// The ContainerSSH SSH proxy received a disconnect from the client.
+const MDisconnected = "SSHPROXY_DISCONNECTED"
+
+// The action cannot be performed because the connection is shutting down.
+const EShuttingDown = "SSHPROXY_SHUTTING_DOWN"
+
+// The backend closed the SSH session towards ContainerSSH.
+const MBackendSessionClosed = "SSHPROXY_BACKEND_SESSION_CLOSED"
+
+// ContainerSSH is closing the session towards the backend service.
+const MBackendSessionClosing = "SSHPROXY_BACKEND_SESSION_CLOSING"
+
+// ContainerSSH could not close the session towards the backend service.
+const EBackendCloseFailed = "SSHPROXY_BACKEND_SESSION_CLOSE_FAILED"
+
+const MBackendDisconnecting = "SSHPROXY_BACKEND_DISCONNECTING"
+
+const MBackendDisconnectFailed = "SSHPROXY_BACKEND_DISCONNECT_FAILED"
+
+const MBackendDisconnected = "SSHPROXY_BACKEND_DISCONNECTED"
+
+const MStderrComplete = "SSHPROXY_STDERR_COMPLETE"
+
+const MStdoutComplete = "SSHPROXY_STDOUT_COMPLETE"

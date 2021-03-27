@@ -31,96 +31,58 @@ func (s *sshConnectionHandler) OnSessionChannel(
 	extraData []byte,
 	session sshserver.SessionChannel,
 ) (channel sshserver.SessionChannelHandler, failureReason sshserver.ChannelRejection) {
+	s.networkHandler.lock.Lock()
+	if s.networkHandler.done {
+		failureReason = sshserver.NewChannelRejection(
+			ssh.ConnectionFailed,
+			EShuttingDown,
+			"Cannot open session.",
+			"Rejected new session because connection is closing.",
+		)
+		s.networkHandler.lock.Unlock()
+		return
+	}
+	s.networkHandler.wg.Add(1)
+	s.networkHandler.lock.Unlock()
+	s.logger.Debug(log.NewMessage(MSession, "Opening new session on SSH backend..."))
 	backingChannel, requests, err := s.cli.OpenChannel("session", extraData)
 	if err != nil {
 		realErr := &ssh.OpenChannelError{}
 		if errors.As(err, &realErr) {
-			return nil, sshserver.NewChannelRejection(
+			failureReason = sshserver.NewChannelRejection(
 				realErr.Reason,
 				EBackendSessionFailed,
 				realErr.Message,
 				"Backend rejected channel with message: %s",
 				realErr.Message,
 			)
+		} else {
+			failureReason = sshserver.NewChannelRejection(
+				ssh.ConnectionFailed,
+				EBackendSessionFailed,
+				"Cannot open session.",
+				"Backend rejected channel with message: %s",
+				err.Error(),
+			)
 		}
-		return nil, sshserver.NewChannelRejection(
-			ssh.ConnectionFailed,
-			EBackendSessionFailed,
-			"Cannot open session.",
-			"Backend rejected channel with message: %s",
-			err.Error(),
-		)
+		s.logger.Debug(failureReason)
+		return nil, failureReason
 	}
 
-	go s.handleBackendClientRequests(requests, session)
-
-	return &sshChannelHandler{
+	sshChannelHandlerInstance := &sshChannelHandler{
+		ssh:            s,
 		lock:           &sync.Mutex{},
 		backingChannel: backingChannel,
 		requests:       requests,
 		session:        session,
 		logger:         s.logger,
 		done:           make(chan struct{}),
-	}, nil
-}
-
-func (s *sshConnectionHandler) handleBackendClientRequests(
-	requests <-chan *ssh.Request,
-	session sshserver.SessionChannel,
-) {
-	func() {
-		for {
-			request, ok := <-requests
-			if !ok {
-				return
-			}
-			switch request.Type {
-			case "exit-status":
-				s.handleExitStatusFromBackend(request, session)
-			case "exit-signal":
-				s.handleExitSignalFromBackend(request, session)
-			default:
-				if request.WantReply {
-					_ = request.Reply(false, []byte{})
-				}
-			}
-		}
-	}()
-}
-
-func (s *sshConnectionHandler) handleExitStatusFromBackend(request *ssh.Request, session sshserver.SessionChannel) {
-	exitStatus := &exitStatusPayload{}
-	if err := ssh.Unmarshal(request.Payload, exitStatus); err != nil {
-		if request.WantReply {
-			_ = request.Reply(false, []byte{})
-		}
-	} else {
-		session.ExitStatus(
-			exitStatus.ExitStatus,
-		)
-		if request.WantReply {
-			_ = request.Reply(true, []byte{})
-		}
 	}
-}
+	go sshChannelHandlerInstance.handleBackendClientRequests(requests, session)
 
-func (s *sshConnectionHandler) handleExitSignalFromBackend(request *ssh.Request, session sshserver.SessionChannel) {
-	exitSignal := &exitSignalPayload{}
-	if err := ssh.Unmarshal(request.Payload, exitSignal); err != nil {
-		if request.WantReply {
-			_ = request.Reply(false, []byte{})
-		}
-	} else {
-		session.ExitSignal(
-			exitSignal.Signal,
-			exitSignal.CoreDumped,
-			exitSignal.ErrorMessage,
-			exitSignal.LanguageTag,
-		)
-		if request.WantReply {
-			_ = request.Reply(true, []byte{})
-		}
-	}
+	s.logger.Debug(log.NewMessage(MSessionOpen, "Session open on SSH backend..."))
+
+	return sshChannelHandlerInstance, nil
 }
 
 func (s *sshConnectionHandler) OnShutdown(_ context.Context) {}

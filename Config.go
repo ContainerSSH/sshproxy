@@ -25,7 +25,8 @@ type Config struct {
 	// Password is the password to offer to the backing SSH server for authentication.
 	Password string `json:"password" yaml:"password"`
 	// PrivateKey is the private key to use for authenticating with the backing server.
-	PrivateKey                 string                     `json:"privateKey" yaml:"privateKey"`
+	PrivateKey string `json:"privateKey" yaml:"privateKey"`
+	// AllowedHostKeyFingerprints lists which fingerprints we accept
 	AllowedHostKeyFingerprints AllowedHostKeyFingerprints `json:"allowedHostKeyFingerprints" yaml:"allowedHostKeyFingerprints"`
 	// Ciphers are the ciphers supported for the backend connection.
 	Ciphers sshserver.CipherList `json:"ciphers" yaml:"ciphers" default:"[\"chacha20-poly1305@openssh.com\",\"aes256-gcm@openssh.com\",\"aes128-gcm@openssh.com\",\"aes256-ctr\",\"aes192-ctr\",\"aes128-ctr\"]" comment:"Cipher suites to use"`

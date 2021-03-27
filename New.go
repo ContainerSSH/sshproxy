@@ -31,10 +31,11 @@ func New(
 
 	return &networkConnectionHandler{
 		lock:                  &sync.Mutex{},
+		wg:                    &sync.WaitGroup{},
 		client:                client,
 		connectionID:          connectionID,
 		config:                config,
-		logger:                logger,
+		logger:                logger.WithLabel("server", config.Server).WithLabel("port", config.Port),
 		backendRequestsMetric: backendRequestsMetric,
 		backendFailuresMetric: backendFailuresMetric,
 		privateKey:            privateKey,

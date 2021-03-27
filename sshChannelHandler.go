@@ -21,6 +21,83 @@ type sshChannelHandler struct {
 	logger         log.Logger
 	done           chan struct{}
 	exited         bool
+	ssh            *sshConnectionHandler
+}
+
+func (s *sshChannelHandler) handleBackendClientRequests(
+	requests <-chan *ssh.Request,
+	session sshserver.SessionChannel,
+) {
+	for {
+		var request *ssh.Request
+		var ok bool
+		select {
+		case request, ok = <-requests:
+			if !ok {
+				s.lock.Lock()
+				s.logger.Debug(log.NewMessage(MBackendSessionClosed, "Backend closed session."))
+				if err := s.session.Close(); err != nil && !errors.Is(err, io.EOF) {
+					s.logger.Debug(log.Wrap(err, ESessionCloseFailed, "Failed to close client-facing session after backend closed session."))
+				}
+				s.lock.Unlock()
+				return
+			}
+		case <-s.done:
+			return
+		}
+		s.lock.Lock()
+
+		switch request.Type {
+		case "exit-status":
+			s.handleExitStatusFromBackend(request, session)
+		case "exit-signal":
+			s.handleExitSignalFromBackend(request, session)
+		default:
+			if request.WantReply {
+				_ = request.Reply(false, []byte{})
+			}
+		}
+		s.lock.Unlock()
+	}
+}
+
+func (s *sshChannelHandler) handleExitStatusFromBackend(request *ssh.Request, session sshserver.SessionChannel) {
+	exitStatus := &exitStatusPayload{}
+	if err := ssh.Unmarshal(request.Payload, exitStatus); err != nil {
+		s.logger.Debug(log.Wrap(err, MExitStatusDecodeFailed, "Received exit status from backend, but failed to decode payload."))
+		if request.WantReply {
+			_ = request.Reply(false, []byte("Failed to decode message."))
+		}
+	} else {
+		s.logger.Debug(log.NewMessage(MExitStatus, "Received exit status from backend: %d", exitStatus.ExitStatus))
+		session.ExitStatus(
+			exitStatus.ExitStatus,
+		)
+		if request.WantReply {
+			_ = request.Reply(true, []byte{})
+		}
+	}
+}
+
+func (s *sshChannelHandler) handleExitSignalFromBackend(request *ssh.Request, session sshserver.SessionChannel) {
+	exitSignal := &exitSignalPayload{}
+	if err := ssh.Unmarshal(request.Payload, exitSignal); err != nil {
+		s.logger.Debug(log.Wrap(err, MExitSignalDecodeFailed, "Received exit signal from backend, but failed to decode payload."))
+		if request.WantReply {
+			_ = request.Reply(false, []byte{})
+		}
+	} else {
+		s.logger.Debug(log.NewMessage(MExitSignal, "Received exit signal from backend: %s", exitSignal.Signal))
+		session.ExitSignal(
+			exitSignal.Signal,
+			exitSignal.CoreDumped,
+			exitSignal.ErrorMessage,
+			exitSignal.LanguageTag,
+		)
+		if request.WantReply {
+			_ = request.Reply(true, []byte{})
+		}
+	}
 }
 
 func (s *sshChannelHandler) streamStdio() error {
@@ -30,59 +107,72 @@ func (s *sshChannelHandler) streamStdio() error {
 		return err
 	}
 	s.started = true
-	go func() {
-		if _, err := io.Copy(s.backingChannel, s.session.Stdin()); err != nil {
-			if !errors.Is(err, io.EOF) {
-				s.logger.Debug(log.Wrap(err, EStdinError, "Error copying stdin"))
-			}
-		}
-		if err := s.backingChannel.CloseWrite(); err != nil && !errors.Is(err, io.EOF) {
-			s.logger.Debug(log.NewMessage(
-				EBackingChannelCloseFailed,
-				"Failed to close the backend SSH channel for writing.",
-			))
-		}
-		if err := s.backingChannel.Close(); err != nil && !errors.Is(err, io.EOF) {
-			s.logger.Debug(log.NewMessage(
-				EBackingChannelCloseFailed,
-				"Failed to close the backend SSH channel.",
-			))
-		}
-	}()
+	go s.streamStdin()
 	outWg := &sync.WaitGroup{}
 	outWg.Add(2)
-	go func() {
-		if _, err := io.Copy(s.session.Stdout(), s.backingChannel); err != nil {
-			if !errors.Is(err, io.EOF) {
-				s.logger.Debug(log.Wrap(err, EStdoutError, "Error copying stdout"))
-			}
-		}
-		outWg.Done()
-	}()
-	go func() {
-		if _, err := io.Copy(s.session.Stderr(), s.backingChannel.Stderr()); err != nil {
-			if !errors.Is(err, io.EOF) {
-				s.logger.Debug(log.Wrap(err, EStderrError, "Error copying stdout"))
-			}
-		}
-		outWg.Done()
-	}()
-	go func() {
-		outWg.Wait()
-		if err := s.session.CloseWrite(); err != nil && !errors.Is(err, io.EOF) {
-			s.logger.Debug(log.NewMessage(
+	go s.streamStdout(outWg)
+	go s.streamStderr(outWg)
+	go s.closeOnOutputComplete(outWg)
+	return nil
+}
+
+func (s *sshChannelHandler) closeOnOutputComplete(outWg *sync.WaitGroup) {
+	outWg.Wait()
+	if err := s.session.CloseWrite(); err != nil && !errors.Is(err, io.EOF) {
+		s.logger.Debug(
+			log.NewMessage(
 				EChannelCloseFailed,
 				"Failed to close the SSH channel for writing.",
-			))
+			),
+		)
+	}
+}
+
+func (s *sshChannelHandler) streamStderr(outWg *sync.WaitGroup) {
+	if _, err := io.Copy(s.session.Stderr(), s.backingChannel.Stderr()); err != nil {
+		if !errors.Is(err, io.EOF) {
+			s.logger.Debug(log.Wrap(err, EStderrError, "Error copying stdout"))
 		}
-		if err := s.session.Close(); err != nil && !errors.Is(err, io.EOF) {
-			s.logger.Debug(log.NewMessage(
-				EChannelCloseFailed,
-				"Failed to close the SSH channel.",
-			))
+	}
+	s.logger.Debug(log.NewMessage(MStderrComplete, "Stderr streaming complete."))
+	outWg.Done()
+}
+
+func (s *sshChannelHandler) streamStdout(outWg *sync.WaitGroup) {
+	if _, err := io.Copy(s.session.Stdout(), s.backingChannel); err != nil {
+		if !errors.Is(err, io.EOF) {
+			s.logger.Debug(log.Wrap(err, EStdoutError, "Error copying stdout"))
 		}
-	}()
-	return nil
+	}
+	s.logger.Debug(log.NewMessage(MStdoutComplete, "Stdout streaming complete."))
+	outWg.Done()
+}
+
+func (s *sshChannelHandler) streamStdin() {
+	if _, err := io.Copy(s.backingChannel, s.session.Stdin()); err != nil {
+		if !errors.Is(err, io.EOF) {
+			s.logger.Debug(log.Wrap(err, EStdinError, "Error copying stdin"))
+		}
+	}
+	s.logger.Debug(log.NewMessage(MSessionClose, "Stdin complete, closing backing session channel..."))
+	if err := s.backingChannel.CloseWrite(); err != nil && !errors.Is(err, io.EOF) {
+		s.logger.Debug(
+			log.NewMessage(
+				ESessionCloseFailed,
+				"Failed to close the backend SSH channel for writing.",
+			),
+		)
+	}
+	if err := s.backingChannel.Close(); err != nil && !errors.Is(err, io.EOF) {
+		s.logger.Debug(
+			log.NewMessage(
+				ESessionCloseFailed,
+				"Failed to close the backend SSH channel.",
+			),
+		)
+	} else {
+		s.logger.Debug(log.NewMessage(MSessionClosed, "Closed backing session channel."))
+	}
 }
 
 func (s *sshChannelHandler) OnUnsupportedChannelRequest(_ uint64, _ string, _ []byte) {}
@@ -102,12 +192,13 @@ func (s *sshChannelHandler) sendRequest(name string, payload interface{}) error 
 	}
 	success, err := s.backingChannel.SendRequest(name, true, marshalledPayload)
 	if err != nil {
-		err := log.WrapUser(err, ESetEnvFailed, "Cannot set environment variable.", "Setting environment variable on backing channel failed.")
+		err := log.WrapUser(err,
+			EBackendRequestFailed, "Cannot complete request.", "Sending a %s request to the backend resulted in an error.", name)
 		s.logger.Debug(err)
 		return err
 	}
 	if !success {
-		err := log.UserMessage(ESetEnvFailed, "Cannot set environment variable.", "Setting environment variable on backing channel failed.")
+		err := log.UserMessage(EBackendRequestFailed, "Cannot complete request.", "Sending a %s request resulted in a rejection from the backend.", name)
 		s.logger.Debug(err)
 		return err
 	}
@@ -160,7 +251,11 @@ func (s *sshChannelHandler) OnExecRequest(_ uint64, program string) error {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	if s.started {
-		err := log.UserMessage(EProgramAlreadyStarted, "Cannot start a program after another program has started.", "Client tried start a second program after the program was already started.")
+		err := log.UserMessage(
+			EProgramAlreadyStarted,
+			"Cannot start a program after another program has started.",
+			"Client tried start a second program after the program was already started.",
+		)
 		s.logger.Debug(err)
 		return err
 	}
@@ -178,7 +273,11 @@ func (s *sshChannelHandler) OnShell(_ uint64) error {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	if s.started {
-		err := log.UserMessage(EProgramAlreadyStarted, "Cannot start a program after another program has started.", "Client tried start a second program after the program was already started.")
+		err := log.UserMessage(
+			EProgramAlreadyStarted,
+			"Cannot start a program after another program has started.",
+			"Client tried start a second program after the program was already started.",
+		)
 		s.logger.Debug(err)
 		return err
 	}
@@ -193,7 +292,11 @@ func (s *sshChannelHandler) OnSubsystem(_ uint64, subsystem string) error {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	if s.started {
-		err := log.UserMessage(EProgramAlreadyStarted, "Cannot start a program after another program has started.", "Client tried start a second program after the program was already started.")
+		err := log.UserMessage(
+			EProgramAlreadyStarted,
+			"Cannot start a program after another program has started.",
+			"Client tried start a second program after the program was already started.",
+		)
 		s.logger.Debug(err)
 		return err
 	}
@@ -211,7 +314,11 @@ func (s *sshChannelHandler) OnSignal(_ uint64, signal string) error {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	if !s.started {
-		err := log.UserMessage(EProgramNotStarted, "Cannot signal before program has started.", "Client tried send a signal before the program was started.")
+		err := log.UserMessage(
+			EProgramNotStarted,
+			"Cannot signal before program has started.",
+			"Client tried send a signal before the program was started.",
+		)
 		s.logger.Debug(err)
 		return err
 	}
@@ -255,11 +362,23 @@ func (s *sshChannelHandler) OnWindow(_ uint64, columns uint32, rows uint32, widt
 func (s *sshChannelHandler) OnClose() {
 	s.lock.Lock()
 	defer s.lock.Unlock()
+
+	if !s.started {
+		s.logger.Debug(log.NewMessage(MBackendSessionClosing, "Client closed session before program start, closing backend session."))
+		if err := s.backingChannel.Close(); err != nil {
+			s.logger.Debug(log.Wrap(err, EBackendCloseFailed, "Failed to close backend channel."))
+		}
+	}
+
+	s.logger.Debug(log.NewMessage(MSessionClose, "Close received from client, closing backing channel."))
 	if err := s.backingChannel.Close(); err != nil && !errors.Is(err, io.EOF) {
-		s.logger.Debug(log.NewMessage(EBackingChannelCloseFailed, "Failed to close backing channel."))
+		s.logger.Debug(log.NewMessage(ESessionCloseFailed, "Failed to close backing channel."))
 	}
 	close(s.done)
 	s.exited = true
+	s.ssh.networkHandler.lock.Lock()
+	s.ssh.networkHandler.wg.Done()
+	s.ssh.networkHandler.lock.Unlock()
 }
 
 func (s *sshChannelHandler) OnShutdown(shutdownContext context.Context) {
@@ -281,6 +400,7 @@ func (s *sshChannelHandler) OnShutdown(shutdownContext context.Context) {
 				Signal: "KILL",
 			}); err != nil {
 				s.logger.Debug(log.Wrap(err, ESignalFailed, "Failed to deliver KILL signal to backend."))
+				_ = s.backingChannel.Close()
 			}
 		}
 		s.lock.Unlock()

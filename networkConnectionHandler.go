@@ -16,6 +16,7 @@ import (
 
 type networkConnectionHandler struct {
 	lock                  *sync.Mutex
+	wg                    *sync.WaitGroup
 	client                net.TCPAddr
 	connectionID          string
 	config                Config
@@ -25,6 +26,7 @@ type networkConnectionHandler struct {
 	tcpConn               net.Conn
 	disconnected          bool
 	privateKey            ssh.Signer
+	done                  bool
 }
 
 func (s *networkConnectionHandler) OnAuthPassword(_ string, _ []byte) (
@@ -202,13 +204,22 @@ loop:
 
 func (s *networkConnectionHandler) OnDisconnect() {
 	s.lock.Lock()
+	s.wg.Wait()
+	s.done = true
 	defer s.lock.Unlock()
+	s.logger.Debug(log.NewMessage(MDisconnected, "Client disconnected."))
 	s.disconnected = true
 	if s.tcpConn != nil {
-		_ = s.tcpConn.Close()
+		s.logger.Debug(log.NewMessage(MBackendDisconnecting, "Disconnecting backend connection..."))
+		if err := s.tcpConn.Close(); err != nil {
+			s.logger.Debug(log.Wrap(err, MBackendDisconnectFailed, "Failed to disconnect backend connection."))
+		} else {
+			s.logger.Debug(log.NewMessage(MBackendDisconnected, "Backend connection disconnected."))
+		}
+	} else {
+		s.logger.Debug(log.NewMessage(MBackendDisconnected, "Backend connection already disconnected."))
 	}
 }
 
 func (s *networkConnectionHandler) OnShutdown(_ context.Context) {
-
 }
