@@ -206,11 +206,12 @@ loop:
 }
 
 func (s *networkConnectionHandler) OnDisconnect() {
+	s.logger.Debug(log.NewMessage(MDisconnected, "Client disconnected, waiting for network connection lock..."))
 	s.lock.Lock()
+	defer s.lock.Unlock()
+	s.logger.Debug(log.NewMessage(MDisconnected, "Client disconnected, waiting for all sessions to terminate..."))
 	s.wg.Wait()
 	s.done = true
-	defer s.lock.Unlock()
-	s.logger.Debug(log.NewMessage(MDisconnected, "Client disconnected."))
 	s.disconnected = true
 	if s.tcpConn != nil {
 		s.logger.Debug(log.NewMessage(MBackendDisconnecting, "Disconnecting backend connection..."))
@@ -224,5 +225,10 @@ func (s *networkConnectionHandler) OnDisconnect() {
 	}
 }
 
-func (s *networkConnectionHandler) OnShutdown(_ context.Context) {
+func (s *networkConnectionHandler) OnShutdown(ctx context.Context) {
+	select {
+
+	case <-ctx.Done():
+		_ = s.tcpConn.Close()
+	}
 }

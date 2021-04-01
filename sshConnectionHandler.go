@@ -85,4 +85,5 @@ func (s *sshConnectionHandler) OnSessionChannel(
 	return sshChannelHandlerInstance, nil
 }
 
-func (s *sshConnectionHandler) OnShutdown(_ context.Context) {}
+func (s *sshConnectionHandler) OnShutdown(_ context.Context) {
+}

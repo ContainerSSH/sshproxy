@@ -376,9 +376,8 @@ func (s *sshChannelHandler) OnClose() {
 	}
 	close(s.done)
 	s.exited = true
-	s.ssh.networkHandler.lock.Lock()
 	s.ssh.networkHandler.wg.Done()
-	s.ssh.networkHandler.lock.Unlock()
+	s.logger.Debug(log.NewMessage(MSessionClosed, "Backing channel closed."))
 }
 
 func (s *sshChannelHandler) OnShutdown(shutdownContext context.Context) {
