@@ -128,6 +128,7 @@ func createContainer(
 	}
 	t.Cleanup(
 		func() {
+			t.Log("Removing backing container...")
 			_ = cli.ContainerRemove(
 				context.Background(), cnt.ID, types.ContainerRemoveOptions{
 					Force: true,

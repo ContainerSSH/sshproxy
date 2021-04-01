@@ -225,10 +225,4 @@ func (s *networkConnectionHandler) OnDisconnect() {
 	}
 }
 
-func (s *networkConnectionHandler) OnShutdown(ctx context.Context) {
-	select {
-
-	case <-ctx.Done():
-		_ = s.tcpConn.Close()
-	}
-}
+func (s *networkConnectionHandler) OnShutdown(_ context.Context) {}
