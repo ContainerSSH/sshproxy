@@ -95,6 +95,7 @@ func (s *networkConnectionHandler) createBackendSSHConnection(username string) (
 	*ssh.Client,
 	error,
 ) {
+	s.backendRequestsMetric.Increment()
 	target := fmt.Sprintf("%s:%d", s.config.Server, s.config.Port)
 	tcpConn, err := s.createBackendTCPConnection(username, target)
 	if err != nil {
@@ -106,6 +107,7 @@ func (s *networkConnectionHandler) createBackendSSHConnection(username string) (
 
 	sshConn, newChannels, requests, err := ssh.NewClientConn(s.tcpConn, target, sshClientConfig)
 	if err != nil {
+		s.backendFailuresMetric.Increment(metrics.Label("failure", "handshake"))
 		return nil, nil, nil, nil, log.WrapUser(
 			err,
 			EBackendHandshakeFailed,
@@ -180,6 +182,7 @@ loop:
 		if lastError == nil {
 			return networkConnection, nil
 		}
+		s.backendFailuresMetric.Increment(metrics.Label("failure", "tcp"))
 		s.logger.Debug(log.WrapUser(
 			lastError,
 			EBackendConnectionFailed,
