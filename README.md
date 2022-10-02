@@ -3,12 +3,9 @@
 <!--suppress HtmlDeprecatedAttribute -->
 <h1 align="center">ContainerSSH SSH Proxy Backend</h1>
 
-[![Go Report Card](https://goreportcard.com/badge/github.com/containerssh/sshproxy?style=for-the-badge)](https://goreportcard.com/report/github.com/containerssh/sshproxy)
-[![LGTM Alerts](https://img.shields.io/lgtm/alerts/github/ContainerSSH/sshproxy?style=for-the-badge)](https://lgtm.com/projects/g/ContainerSSH/sshproxy/)
+<p align="center"><strong>⚠⚠⚠ Deprecated: ⚠⚠⚠</strong><br />This repository is deprecated in favor of <a href="https://github.com/ContainerSSH/libcontainerssh">libcontainerssh</a> for ContainerSSH 0.5.</p>
 
 This is the SSH proxy backend for ContainerSSH, which forwards connections to a backend SSH server.
-
-<p align="center"><strong>⚠⚠⚠ Warning: This is a developer documentation. ⚠⚠⚠</strong><br />The user documentation for ContainerSSH is located at <a href="https://containerssh.io">containerssh.io</a>.</p>
 
 ## Using this library
 
