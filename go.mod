@@ -9,7 +9,7 @@ require (
 	github.com/containerssh/log v1.0.0
 	github.com/containerssh/metrics v1.0.0
 	github.com/containerssh/sshserver v1.0.0
-	github.com/containerssh/structutils v1.0.0
+	github.com/containerssh/structutils v1.1.0
 	github.com/docker/distribution v2.7.1+incompatible // indirect
 	github.com/docker/docker v20.10.5+incompatible
 	github.com/docker/go-connections v0.4.0
